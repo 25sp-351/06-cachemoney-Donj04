@@ -6,7 +6,7 @@ GREEN='\033[0;32m'
 NONE='\033[0m' # No color
 
 # Compile
-make all
+make main
 if [ $? -ne 0 ]; then
     echo -e "${RED}Compilation failed${NONE}"
     exit 1
@@ -38,8 +38,10 @@ do
 
 done < TESTS.md
 
+run_command="./main null -q"
+
 # Run program with test inputs
-output=$(./memoize -q <<< "$(printf "%s\n" "${test_inputs[@]}")")
+output=$($run_command <<< "$(printf "%s\n" "${test_inputs[@]}")")
 
 # Get each output
 IFS=$'\n' read -r -d '' -a output_lines <<< "$output"

@@ -1,68 +1,67 @@
 #include "cache.h"
 
-#include <stdbool.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
-#include "converter.h"
-
-#define CACHE_SIZE 1500
-#define STR_LENGTH 256
-
-// typedef struct cache {
-//     char values[CACHE_SIZE][STR_LENGTH];
-// } *Cache;
-
-Cache newCache() {
-    Cache new_cache = malloc(sizeof(struct cache));
-    for (size_t ix = 0; ix < CACHE_SIZE; ix++)
-        memset(new_cache->values[ix], '\0', STR_LENGTH);
-    return new_cache;
+void _do_nothing(void) {
 }
 
-void freeCache(Cache cache) {
-    if (cache != NULL)
-        free(cache);
-}
-
-bool validCacheIdx(const Cache cache, long long num) {
-    return (cache != NULL) && (num >= 0) && (num < CACHE_SIZE);
-}
-
-char* getCached(Cache cache, long long num) {
-    if (validCacheIdx(cache, num)) {
-        // printf("received '%s' from idx %lld\n", cache->values[num], num);
-        return cache->values[num];
-    }
+CacheStat *_do_nothing_stats(void) {
     return NULL;
 }
 
-bool numIsCached(Cache cache, long long num) {
-    // printf("looking in cache idx %lld... ", num);
-    if (validCacheIdx(cache, num)) {
-        char* str = getCached(cache, num);
-        if (str != NULL && str[0] != '\0') {
-            // printf(" it is cached\n");
-            return true;
-        }
+Cache *load_cache_module(const char *libname) {
+    void *handle = dlopen(libname, RTLD_NOW | RTLD_NODELETE);
+    if (!handle) {
+        fprintf(stderr, "Error: %s\n", dlerror());
+        return NULL;
     }
-    // printf(" not cached\n");
-    return false;
+
+    Cache *hooks               = malloc(sizeof(Cache));
+
+    Void_fptr cache_initialize = (Void_fptr)dlsym(handle, "initialize");
+    hooks->set_provider_func = (SetProvider_fptr)dlsym(handle, "set_provider");
+    hooks->get_statistics    = (Stats_fptr)dlsym(handle, "statistics");
+    hooks->reset_statistics  = (Void_fptr)dlsym(handle, "reset_statistics");
+    hooks->cache_cleanup     = (Void_fptr)dlsym(handle, "cleanup");
+    hooks->show_debug_info   = (bool*)dlsym(handle, "show_debug_info");
+
+    dlclose(handle);
+
+    if (!hooks->get_statistics)
+        hooks->get_statistics = _do_nothing_stats;
+    if (!hooks->reset_statistics)
+        hooks->reset_statistics = _do_nothing;
+    if (!hooks->cache_cleanup)
+        hooks->cache_cleanup = _do_nothing;
+
+    // Only require the required one
+    if (!hooks->set_provider_func) {
+        fprintf(stderr, "Error: could not resolve required symbol: (%p)\n",
+                (void *)hooks->set_provider_func);
+        free(hooks);
+        hooks = NULL;
+    }
+
+    if (cache_initialize)
+        cache_initialize();
+
+    return hooks;
 }
 
-void setCacheVal(Cache cache, long long num, const char* new_str) {
-    if (validCacheIdx(cache, num)) {
-        char* curr = getCached(cache, num);
-        strncpy(curr, new_str, STR_LENGTH - 1);
-        curr[STR_LENGTH - 1] = '\0';
-        // printf("added %lld: '%s' to cache\n", num, curr);
+void print_cache_stats(int fd, CacheStat *stats) {
+    if (!stats) {
+        dprintf(fd, "No cache stats available\n");
+        return;
     }
-}
 
-void addToCache(Cache cache, long long num, const char* new_str) {
-    if (!numIsCached(cache, num))
-        setCacheVal(cache, num, new_str);
-    // else
-    //     printf("%lld is already cached\n", num);
+    printf("Cache Stats:\n");
+
+    CacheStat *sptr = stats;
+    while (sptr->type != END_OF_STATS) {
+        dprintf(fd, "%-10s (%d) %4d\n", CacheStatNames[sptr->type], sptr->type,
+                sptr->value);
+        sptr++;
+    }
 }

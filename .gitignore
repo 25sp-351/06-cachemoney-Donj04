@@ -2,10 +2,10 @@
 .jj
 .env
 *.o
+*.so
 .ob
 .exe
 a.out
 main
-memoize
 node_modules/
 .vscode/
